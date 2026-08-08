@@ -1,0 +1,6 @@
+venv/
+chroma_db/
+*_extracted_text.txt
+*.htm
+__pycache__/
+*.pyc
