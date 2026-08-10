@@ -4,3 +4,4 @@ chroma_db/
 *.htm
 __pycache__/
 *.pyc
+.env

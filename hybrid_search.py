@@ -86,4 +86,4 @@ if __name__ == "__main__":
         c = chunk_lookup[chunk_id]
         print(f"Rerank score: {score:.4f} | {c['company']} | {c['section']}")
         print(c["text"][:200])
-        print()
+        print() 
