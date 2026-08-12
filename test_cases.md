@@ -74,3 +74,29 @@ NLI entailment can produce false negatives on long, multi-topic chunks where
 the supporting sentence is only a small part of the premise — a real tradeoff 
 of verifying at chunk granularity rather than sentence granularity, worth 
 noting as a known limitation rather than a design flaw.
+
+## Test 8: Number extraction regex — edge case with "10-K"
+**Test input:** extract_numbers() run against two strings:
+1. "Total net sales for fiscal year 2024 was $391,035 million"
+2. "10-K | 13 The technology industry, including, in some instances, the Company"
+
+**Output:**
+1. ['2024', '$391,035']
+2. ['10', '13']
+
+**Observation:** The regex `\$?\d[\d,]*\.?\d*` correctly extracts real financial 
+figures like $391,035, but has two known limitations:
+1. It also extracts plain years (e.g. "2024") as numbers, which are not 
+   financial figures worth numeric-consistency checking — low risk, but adds 
+   noise to comparisons.
+2. It incorrectly splits "10-K" (a document type name, not a number) into the 
+   standalone number "10", since the regex has no way to distinguish a number 
+   followed by a letter (forming a term) from a genuine standalone figure.
+
+This is a known limitation, not yet fixed. Risk is currently low because "10-K" 
+has only appeared in premise/chunk boilerplate text so far, not inside any 
+LLM-generated claim tested to date — but if a future claim referenced "10-K" 
+directly, this could cause a spurious number-match false positive in the 
+consistency check. Documented here as a candidate future improvement 
+(e.g. excluding number-letter compound terms via a negative lookahead) rather 
+than fixed now, to keep Stage 6 moving.

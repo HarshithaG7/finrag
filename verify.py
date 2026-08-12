@@ -2,6 +2,7 @@ from sentence_transformers import CrossEncoder
 
 from generate import parse_citations
 nli_model=CrossEncoder("cross-encoder/nli-roberta-base")
+import re
 
 def check_entailment(premise,hypothesis):
     result=nli_model.predict([(premise,hypothesis)])
@@ -24,12 +25,18 @@ def verify_claim(claim_dict,chunk_lookup):
             continue
         premise=chunk_lookup[chunk_id]["text"]
         label,confidence=check_entailment(premise,claim)
+        numeric_consistent, mismatches = check_numeric_consistency(premise, claim)
         citation_result.append({
-            "chunk_id":chunk_id,
-            "status":label,
-            "confidence":float(confidence)
+            "chunk_id": chunk_id,
+            "status": label,
+            "confidence": float(confidence),
+            "numeric_consistent": numeric_consistent,
+            "numeric_mismatches": mismatches
         })
-    overall_verified=any(r["status"] == "entailment" for r in citation_result)
+    overall_verified = any(
+        r["status"] == "entailment" and r.get("numeric_consistent", True)
+        for r in citation_result
+    )
     return {
         "claim":claim,
         "citations":citation_result,
@@ -44,19 +51,59 @@ def verify_answer(answer_text,chunk_lookup):
         verification_results.append(result)
     return verification_results
 
+def extract_numbers(text):
+    raw_matches=re.findall(r'\$?\d[\d,]*\.?\d*', text)
+    return raw_matches
+
+def normalize_number(num_str):
+    return num_str.replace("$", "").replace(",", "")
+
+def check_numeric_consistency(premise, claim):
+    claim_numbers = extract_numbers(claim)
+    premise_numbers = extract_numbers(premise)
+    
+    normalized_premise = [normalize_number(n) for n in premise_numbers]
+    
+    if not claim_numbers:
+        return True, []
+    
+    mismatches = []
+    for num in claim_numbers:
+        if normalize_number(num) not in normalized_premise:
+            mismatches.append(num)
+    
+    consistent = len(mismatches) == 0
+    return consistent, mismatches
+
 if __name__ == "__main__":
-    print(nli_model.model.config.id2label)
     from hybrid_search import load_all_chunks
-    from generate import generate_answer, build_prompt, parse_citations  # whatever you need to produce a real answer
-        
+    from generate import generate_answer, build_prompt, parse_citations
+
+    # confirm NLI label order (already verified, kept here for reference)
+    print(nli_model.model.config.id2label)
+
     chunks = load_all_chunks()
     chunk_lookup = {chunk["chunk_id"]: chunk for chunk in chunks}
-        
-        # reuse one of your real test answers, e.g. paste in the Test 2 answer directly
-        # rather than regenerating it, so you're checking against a KNOWN case:
-    answer_text = "The technology industry, including Apple and Microsoft, is subject to intense media, political and regulatory scrutiny, which exposes the companies to increasing regulation, government investigations, legal actions and penalties [AAPL_Item 1A._42]. This scrutiny can result in changes to their business as they take actions to comply with legal and regulatory requirements, for example, implementing changes to iOS, iPadOS, the App Store, and Safari to comply with the Digital Markets Act in the EU [AAPL_Item 1A._42]."
-        
-    results = verify_answer(answer_text, chunk_lookup)
-    for r in results:
+
+    print("--- Full pipeline test: real query with a number ---")
+    from hybrid_search import build_bm25_index, vector_search, bm25_search, reciprocal_rank_fusion, rerank
+
+    bm25 = build_bm25_index(chunks)
+    query = "What was Apple's total net sales for fiscal year 2024?"
+
+    vec_results = vector_search(query, n=20)
+    bm25_results = bm25_search(query, bm25, chunks, n=20)
+    fused = reciprocal_rank_fusion(vec_results, bm25_results)
+    candidate_ids = [chunk_id for chunk_id, score in fused[:20]]
+    top_chunks_scored = rerank(query, candidate_ids, chunk_lookup, top_n=5)
+    top_chunks = [chunk_lookup[chunk_id] for chunk_id, score in top_chunks_scored]
+
+    answer = generate_answer(query, top_chunks)
+    print("Generated answer:", answer)
+    print()
+
+    real_results = verify_answer(answer, chunk_lookup)
+    for r in real_results:
         print(r)
         print()
+    
