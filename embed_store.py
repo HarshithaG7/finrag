@@ -23,7 +23,7 @@ def search(query, n_results=5):
     return results
 
 if __name__ == "__main__":
-    """ import sys
+    import sys
     sys.path.append(".")  # so we can import from chunker.py
     from chunker import chunk_filing
     
@@ -38,7 +38,6 @@ if __name__ == "__main__":
     
     print("Total in collection:", collection.count())
 
-    """
     results = search("What risks does the company face related to autonomous driving or self-driving technology?")
     for i in range(len(results["documents"][0])):
         print(f"--- Result {i+1} ---")

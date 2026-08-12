@@ -41,22 +41,35 @@ def download_filing(cik,accession_number,primary_document):
         print(f"Downloaded filing: {filename}")
     else:
         print(f"Failed to download filing: {response.status_code}")
+    return filename
+
+def flatten_tables(soup):
+    for table in soup.find_all("table"):
+        rows=table.find_all("tr")
+        row_texts=[]
+        for row in rows:
+            cells=row.find_all(["td","th"])
+            cell_texts=[cell.get_text(strip=True) for cell in cells]
+            row_text=" | ".join(cell_texts)
+            row_texts.append(row_text)
+        table_text="\n".join(row_texts)
+        table.replace_with(table_text)
+    return soup
+
 def extract_text_from_filing(filename):
     with open(filename,"r",encoding="utf-8") as f:
         content=f.read()
-    content=BeautifulSoup(content,"html.parser")
-    content=content.get_text(separator=" ",strip=True)
-    return content
-
-
+    soup=BeautifulSoup(content,"html.parser")
+    soup=flatten_tables(soup)
+    text=soup.get_text(separator=" ",strip=True)
+    return text
 if __name__ == "__main__":
-    ticker="MSFT"
-    cik = get_cik(ticker)
-    filings = get_recent_10k_filings(cik)
-    print(filings)
-    first_filing = filings[0]
-    download_filing(cik, first_filing["accessionNumber"], first_filing["primaryDocument"])
-    extracted_text=extract_text_from_filing(f"{first_filing['accessionNumber']}_{first_filing['primaryDocument']}")
-    with open(f"{ticker}_extracted_text.txt","w",encoding="utf-8") as f:
-        f.write(extracted_text)
-    print("Extracted text saved to extracted_text.txt")
+    for ticker in ["AAPL", "TSLA", "MSFT"]:
+        cik = get_cik(ticker)
+        filings = get_recent_10k_filings(cik)
+        first_filing = filings[0]
+        downloaded_filename = download_filing(cik, first_filing["accessionNumber"], first_filing["primaryDocument"])
+        extracted_text = extract_text_from_filing(downloaded_filename)
+        with open(f"{ticker}_extracted_text.txt", "w", encoding="utf-8") as f:
+            f.write(extracted_text)
+        print(f"Extracted text saved to {ticker}_extracted_text.txt")

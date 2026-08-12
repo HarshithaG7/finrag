@@ -100,3 +100,47 @@ directly, this could cause a spurious number-match false positive in the
 consistency check. Documented here as a candidate future improvement 
 (e.g. excluding number-letter compound terms via a negative lookahead) rather 
 than fixed now, to keep Stage 6 moving.
+
+## Test 9: Numeric consistency fix + persistent NLI dilution limitation
+**Query:** "What was Apple's total net sales for fiscal year 2024?"
+**Generated answer:** "Total net sales for fiscal year 2024 was $391,035 [AAPL_Item 8._49] [AAPL_Item 7._4]."
+
+**Before fix:** check_numeric_consistency flagged $391,035 as a mismatch against 
+a real chunk (AAPL_Item 8._1) that does contain this figure. Root cause: the 
+chunk's raw text came from a flattened financial statement table where dollar 
+signs are stripped during extraction ("Total net sales 416,161 391,035383,285"), 
+so the premise's number appeared as bare "391,035" with no "$", while the claim's 
+number appeared as "$391,035" (added by the LLM's own phrasing). The exact string 
+comparison failed on the "$" difference alone.
+
+**Fix applied:** added normalize_number() to strip "$" and "," from both claim 
+and premise numbers before comparing, so "$391,035" and "391,035" are correctly 
+recognized as the same figure.
+
+**After fix:** numeric_consistent: True for both citations — the correct result, 
+confirming the real figure is accurately reflected in the generated claim.
+
+**Remaining limitation (not fixed, documented):** overall_verified is still 
+False, because both citations returned NLI status "neutral" rather than 
+"entailment" — the same dilution pattern first found in Test 7. The chunks here 
+are dense financial statement tables covering many line items (net sales, cost 
+of sales, operating income, EPS, etc.), and the NLI model does not confidently 
+recognize a single correct figure buried in that density as full entailment. 
+This means the pipeline can now correctly confirm a number is accurate 
+(numeric check) while still under-scoring the claim's overall verification 
+status (NLI check) — a mismatch between the two checks that's worth being 
+explicit about rather than silently averaging away.
+
+## Key finding (final, Stage 6)
+Stage 6's two-check design (NLI entailment + numeric consistency) catches 
+distinct, real failure modes independently: NLI catches scope/context 
+mismatches (Test 2, Test 7) that numeric checking would miss entirely, while 
+numeric checking catches exact-figure errors (validated via the corrected 
+$400,000 mismatch test) that NLI's semantic flexibility can miss. However, 
+both checks have known, documented limitations: NLI produces false negatives 
+on long, dense, multi-topic premises (Tests 7 and 9), and numeric extraction 
+can be defeated by upstream text-extraction artifacts like merged table 
+columns (Test 9). These limitations are inherent to the underlying models and 
+raw filing data, not bugs in the verification logic itself, and are documented 
+here as known, honestly-reported constraints of the system rather than hidden 
+or silently patched over.
