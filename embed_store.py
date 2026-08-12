@@ -37,7 +37,6 @@ if __name__ == "__main__":
         print(f"{ticker}: stored {len(chunks)} chunks")
     
     print("Total in collection:", collection.count())
-
     results = search("What risks does the company face related to autonomous driving or self-driving technology?")
     for i in range(len(results["documents"][0])):
         print(f"--- Result {i+1} ---")

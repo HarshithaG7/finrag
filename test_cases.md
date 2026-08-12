@@ -144,3 +144,45 @@ columns (Test 9). These limitations are inherent to the underlying models and
 raw filing data, not bugs in the verification logic itself, and are documented 
 here as known, honestly-reported constraints of the system rather than hidden 
 or silently patched over.
+
+## Test 10: Section-boundary case-sensitivity bug (Tesla Item 14 mislabeling, resolved)
+**Background:** Since Stage 2, Tesla's autonomous driving / FSD / Robotaxi content 
+was consistently mislabeled as "Item 14." instead of its correct section 
+(Item 1 / Item 1A), and this was documented as an accepted known limitation. 
+Investigated properly while fixing the Stage 1 table-extraction bug.
+
+**Root cause:** `find_section_boundaries` searched for exact-case section titles 
+like "Item 14." using `text.rfind()`. Tesla's actual 10-K writes section headers 
+in all-caps (e.g. "ITEM 14. PRINCIPAL ACCOUNTANT FEES AND SERVICES"), which never 
+matches a mixed-case search string. The only place "Item 14." (mixed case) 
+appeared anywhere in the document was inside the Table of Contents — so `.rfind()` 
+fell back to that early, incorrect position every time, and everything from there 
+until the next successfully-matched section got swept into "Item 14," including 
+large amounts of real Item 1/Item 1A content (autonomous driving, FSD, Robotaxi, 
+risk factors).
+
+**Fix:** replaced the exact-match `.rfind()` search with a case-insensitive 
+`re.finditer(re.escape(title), text, re.IGNORECASE)`, taking the last match 
+(`matches[-1]`) to preserve the original intent of avoiding the Table of Contents 
+occurrence in sections where a later, correctly-cased real header exists.
+
+**Verification:** re-ran chunker.py and embed_store.py (after deleting and 
+rebuilding chroma_db — see note below) and re-ran the same autonomous-driving 
+search query used in Stage 3's original validation. All 5 top results are now 
+correctly labeled Item 1. or Item 1A., with zero Item 14. mislabeling.
+
+**Side lesson (Chroma rebuild):** re-running `embed_store.py` without first 
+deleting the existing `chroma_db` folder appends new chunks on top of old ones 
+rather than replacing them, since `store_chunks` only calls `collection.add()`. 
+This caused a temporary duplicate/stale-data issue (1721 chunks instead of the 
+expected 1038) until `chroma_db` was deleted and rebuilt fresh. Going forward, 
+`chroma_db` must be deleted before any re-run of `embed_store.py` following a 
+change to chunking or extraction logic.
+
+## Key finding (final)
+A limitation accepted early in the project (Stage 2) turned out to have a real, 
+fixable root cause — case sensitivity in section-header matching — once properly 
+investigated rather than left as a documented workaround. This is a good example 
+of revisiting "acceptable" limitations when the underlying system evolves (in 
+this case, prompted by fixing an unrelated extraction bug), rather than assuming 
+early technical debt is permanent.

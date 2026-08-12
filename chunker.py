@@ -1,24 +1,26 @@
+import re
+
 def find_section_boundaries(text):
-    """
-    Find the start and end indices of each section in the text.
-    Returns a list of tuples (start_index, end_index).
-    """
-    section_boundaries=[]
-    section_titles=["Item 1.","Item 1A.","Item 1B.","Item 2.","Item 3.","Item 4.","Item 5.","Item 6.","Item 7.","Item 7A.","Item 8.","Item 9.","Item 9A.","Item 10.","Item 11.","Item 12.","Item 13.","Item 14."]
+    section_boundaries = []
+    section_titles = ["Item 1.","Item 1A.","Item 1B.","Item 2.","Item 3.","Item 4.","Item 5.","Item 6.","Item 7.","Item 7A.","Item 8.","Item 9.","Item 9A.","Item 10.","Item 11.","Item 12.","Item 13.","Item 14."]
+    
     for title in section_titles:
-        start_index=text.rfind(title)
-        if start_index!=-1:
-            section_boundaries.append((title,start_index))
+        # escape the period so it's treated literally, not as regex wildcard
+        pattern = re.escape(title)
+        matches = list(re.finditer(pattern, text, re.IGNORECASE))
+        if matches:
+            start_index = matches[-1].start()  # last match, same intent as rfind
+            section_boundaries.append((title, start_index))
+    
     section_boundaries.sort(key=lambda x: x[1])
-    section_boundaries_with_end=[]
+    section_boundaries_with_end = []
     for i in range(len(section_boundaries)):
-        start_title, start_index=section_boundaries[i]
-        if i<len(section_boundaries)-1:
-            end_index=section_boundaries[i+1][1]
-        else:
-            end_index=len(text)
-        section_boundaries_with_end.append((start_title,start_index,end_index))
+        start_title, start_index = section_boundaries[i]
+        end_index = section_boundaries[i+1][1] if i < len(section_boundaries)-1 else len(text)
+        section_boundaries_with_end.append((start_title, start_index, end_index))
     return section_boundaries_with_end
+
+
 def chunk_section_text(text,max_chars=1200,overlap_chars=200):
     """
     Chunk the text into smaller sections of max_chars length, with overlap of overlap_chars.
