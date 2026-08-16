@@ -1,5 +1,5 @@
 from sentence_transformers import CrossEncoder
-
+import numpy as np
 from generate import parse_citations
 nli_model=CrossEncoder("cross-encoder/nli-roberta-base")
 import re
@@ -7,10 +7,11 @@ import re
 def check_entailment(premise,hypothesis):
     result=nli_model.predict([(premise,hypothesis)])
     scores=result[0]
+    probs=np.exp(scores)/np.sum(np.exp(scores))
     labels=["contradiction","entailment","neutral"]
-    best_index=scores.argmax()
+    best_index=probs.argmax()
     best_label=labels[best_index]
-    confidence=scores[best_index]
+    confidence=probs[best_index]
     return best_label,confidence
 
 def verify_claim(claim_dict,chunk_lookup):
