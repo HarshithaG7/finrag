@@ -4,19 +4,19 @@
 
 - **Eval set:** 20 hand-verified questions across 6 categories, spanning AAPL, TSLA, and MSFT 10-K filings.
 - **Pipeline stages compared:** RRF-fused hybrid retrieval (BM25 + vector search) vs. the same candidates after cross-encoder reranking.
-- **Metric:** Precision@5 — fraction of the top 5 retrieved chunks that match hand-labeled `relevant_chunk_ids`.
+- **Metrics:** Precision@5 — fraction of the top 5 retrieved chunks that match hand-labeled `relevant_chunk_ids`. Recall@5 — whether *at least one* relevant chunk appears anywhere in the top 5, regardless of what else is retrieved alongside it.
 - **Ground truth:** each question manually mapped to the specific chunk(s) in the 10-K that answer it, verified by reading the source filing directly.
 
 ## Results by Category
 
-| Category | n | Precision@5 (before rerank) | Precision@5 (after rerank) | Δ |
-|---|---|---|---|---|
-| Numeric | 5 | 0.08 | 0.08 | 0.00 |
-| Cross-company | 3 | 0.13 | 0.27 | **+0.13** |
-| Single-company narrow | 3 | 0.07 | 0.13 | **+0.07** |
-| Conceptual | 4 | 0.10 | 0.05 | **−0.05** |
-| Section-specific | 1 | 0.20 | 0.20 | 0.00 |
-| Out-of-scope | 3 | N/A | N/A | — |
+| Category | n | P@5 before | P@5 after | Δ P@5 | R@5 before | R@5 after | Δ R@5 |
+|---|---|---|---|---|---|---|---|
+| Numeric | 5 | 0.08 | 0.08 | 0.00 | 0.40 | 0.40 | 0.00 |
+| Cross-company | 3 | 0.13 | 0.27 | **+0.13** | 0.67 | **1.00** | **+0.33** |
+| Single-company narrow | 3 | 0.07 | 0.13 | **+0.07** | 0.33 | 0.33 | 0.00 |
+| Conceptual | 4 | 0.10 | 0.05 | **−0.05** | 0.50 | 0.25 | **−0.25** |
+| Section-specific | 1 | 0.20 | 0.20 | 0.00 | 1.00 | 1.00 | 0.00 |
+| Out-of-scope | 3 | N/A | N/A | — | N/A | N/A | — |
 
 *(Out-of-scope questions have no ground-truth chunks by design — the correct system behavior is retrieving nothing relevant, so precision@5 doesn't apply. All 3 were confirmed to have zero matching chunks in the corpus.)*
 
@@ -46,13 +46,23 @@ This points to a structural limitation: **cross-encoder reranking optimizes for 
 
 Conceptual questions (broad, multi-chunk risk-factor questions like "What risks does Tesla describe related to battery technology?") saw a small but consistent drop (−0.05). These questions are often answered by *multiple* chunks scattered across a risk-factors section, and a cross-encoder scoring passages independently against the query has no mechanism to reward coverage or complementarity between chunks — it will happily rank five near-duplicate high-relevance passages above a more complete set, even if some of the actually-correct supporting chunks lose out.
 
+## Recall@5 Confirms and Sharpens the Precision Findings
+
+Adding recall@5 — did *any* correct chunk make it into the top 5 at all — reinforces two of the three precision findings above and adds a distinct angle on the third.
+
+**Cross-company: recall goes to 1.00 after reranking.** Every cross-company question now has at least one correct chunk somewhere in its top 5 post-rerank (up from 0.67 before). This is a stronger, cleaner confirmation of the Q6 finding above: reranking isn't just nudging the correct chunk higher in already-successful cases, it's recovering the correct chunk for previously-missed questions too.
+
+**Conceptual: recall drops alongside precision (0.50 → 0.25).** Both metrics now agree that reranking is actively pushing relevant chunks *out* of the top 5 for broad conceptual questions, not just reordering an already-correct set. That's a more concrete version of the "no mechanism to reward complementary coverage" hypothesis above.
+
+**Numeric: recall (0.40) is unaffected by reranking, unlike precision.** This is the most interesting divergence. Precision@5 for numeric questions is very low (0.08) and reranking doesn't change it — but recall says the correct chunk *is* present in the top 5 for 40% of numeric questions, both before and after reranking. In other words, reranking isn't losing the right chunk; it's just failing to consistently rank it at position 1, which is exactly what the Q1 case study shows: the correct "Total net sales" table and an incorrect-but-topically-similar country-breakdown table both remain in the candidate set, and the cross-encoder can't reliably tell them apart on rank order alone.
+
 ## Interpretation for the RAG System
 
 These results suggest reranking should not be treated as a blanket "always apply" step. A more nuanced strategy — e.g., routing numeric/factual queries toward exact-match or table-aware retrieval instead of pure semantic reranking, while keeping reranking for cross-document and disambiguation-heavy queries — would likely outperform a single fixed pipeline across all query types. This is a natural direction for future work beyond the current 8-stage scope.
 
 ## Caveats
 
-- Precision@5 is a strict metric given the ground truth typically has only 1–4 relevant chunks out of ~1,038 total chunks in the corpus; a complementary **recall@5** (did *any* correct chunk appear in the top 5, regardless of what else is there) would give a fuller picture and is a natural next metric to add.
+- Precision@5 is a strict metric given the ground truth typically has only 1–4 relevant chunks out of ~1,038 total chunks in the corpus; recall@5 (above) complements it by capturing whether the correct chunk was found at all, regardless of what else was retrieved.
 - Sample sizes per category are small (n=1 to n=5), consistent with a 20-question hand-verified eval set. Findings above are directional, not statistically definitive — appropriate framing for a portfolio project, but worth stating explicitly rather than overclaiming.
 - Ground truth was single-labeled per question in most cases; a small number of questions (e.g. Q1, Q4) were manually checked for near-duplicate "correct-looking" chunks to rule out mislabeling before concluding a result was a genuine retrieval/reranking issue rather than a ground-truth error.
 
@@ -109,8 +119,7 @@ Conceptual (17.6%) and cross-company (18.2%) questions also score low, but for a
 
 ## Next Steps
 
-1. Add recall@5 alongside precision@5 for a fuller retrieval picture.
-2. Explore a table-aware or hybrid verification strategy (e.g. weighting numeric consistency more heavily for chunks that are tabular) to reduce the conservative bias identified in Finding 2.
-3. Add temperature/seed control to `generate_answer()` for reproducible faithfulness runs.
-4. Investigate whether a hybrid reranking strategy (skip reranking for numeric-category queries) improves aggregate retrieval performance.
-5. Commit `eval_set.py`, `eval.py`, `eval_faithfulness.py`, `verify.py` (with softmax fix), and this results doc to the repo. Confirm `.env` is in `.gitignore` before pushing.
+1. Explore a table-aware or hybrid verification strategy (e.g. weighting numeric consistency more heavily for chunks that are tabular) to reduce the conservative bias identified in Finding 2.
+2. Add temperature/seed control to `generate_answer()` for reproducible faithfulness runs.
+3. Investigate whether a hybrid reranking strategy (skip reranking for numeric-category queries) improves aggregate retrieval performance.
+4. Commit `eval_set.py`, `eval.py`, `eval_faithfulness.py`, `verify.py` (with softmax fix), and this results doc to the repo. Confirm `.env` is in `.gitignore` before pushing.

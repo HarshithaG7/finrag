@@ -12,6 +12,11 @@ def precision_at_5(retrieved_ids,relevant_ids):
         if id in relevant_ids:
             hits+=1
     return hits/5
+def recall_at_5(retrieved_ids,relevant_ids):
+    if not relevant_ids:
+        return None
+    top_5=retrieved_ids[:5]
+    return any(id in relevant_ids for id in top_5)
 
 if __name__ == "__main__":
     chunks = load_all_chunks()
@@ -28,10 +33,10 @@ if __name__ == "__main__":
 
         # before reranking
         p5_before = precision_at_5(fused_ids, item["relevant_chunk_ids"])
-
+        r5_before=recall_at_5(fused_ids,item["relevant_chunk_ids"])
         # after reranking — rerank takes the fused candidates and re-scores them
         reranked_ids = rerank(query, fused_ids, chunk_lookup, top_n=5)
-
+    
         if DEBUG and item["category"] == "numeric":
             print("GROUND TRUTH chunk text:")
             for cid in item["relevant_chunk_ids"]:
@@ -42,8 +47,10 @@ if __name__ == "__main__":
         reranked_ids_only = [chunk_id for chunk_id, score in reranked_ids]
         
         p5_after = precision_at_5(reranked_ids_only, item["relevant_chunk_ids"])
+        r5_after=recall_at_5(reranked_ids_only,item["relevant_chunk_ids"])
         if item["relevant_chunk_ids"]:
-            category_results[item["category"]].append((p5_before,p5_after))
+            category_results[item["category"]].append((p5_before,p5_after,r5_before,r5_after
+                                                       ))
 
         print(f"Q: {query}")
         print(f"Category: {item['category']}")
@@ -53,6 +60,8 @@ if __name__ == "__main__":
 
     print("\n=== Category Averages ===")
     for category, results in category_results.items():
-        before_avg = sum(r[0] for r in results) / len(results)
-        after_avg = sum(r[1] for r in results) / len(results)
-        print(f"{category}: before={before_avg:.2f}, after={after_avg:.2f}, n={len(results)}")
+        before_avg_p5 = sum(r[0] for r in results) / len(results)
+        after_avg_p5 = sum(r[1] for r in results) / len(results)
+        before_avg_r5 = sum(r[2] for r in results) / len(results)
+        after_avg_r5 = sum(r[3] for r in results) / len(results)
+        print(f"{category}: P5 before={before_avg_p5:.2f}, after={after_avg_p5:.2f} | R5 before={before_avg_r5:.2f}, after={after_avg_r5:.2f}, n={len(results)}")
